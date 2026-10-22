@@ -1,0 +1,15 @@
+# Mỗi dòng là một chuyên mục. Crawler duyệt thêm các trang -p2, -p3, ...
+https://vnexpress.net/thoi-su
+https://vnexpress.net/the-gioi
+https://vnexpress.net/kinh-doanh
+https://vnexpress.net/khoa-hoc-cong-nghe
+https://vnexpress.net/giai-tri
+https://vnexpress.net/the-thao
+https://vnexpress.net/phap-luat
+https://vnexpress.net/giao-duc
+https://vnexpress.net/suc-khoe
+https://vnexpress.net/doi-song
+https://vnexpress.net/du-lich
+https://vnexpress.net/oto-xe-may
+https://vnexpress.net/y-kien
+https://vnexpress.net/tam-su

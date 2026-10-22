@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+
+# Generated crawl and persistent index
+data/documents.jsonl
+data/*.tmp
+index/*
+!index/.gitkeep
+index_building/
+index_old/
