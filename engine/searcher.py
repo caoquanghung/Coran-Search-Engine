@@ -27,6 +27,7 @@ class SearchResult:
     comment_count: int
     image_url: str
     score: float
+    doc_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,7 @@ class SearchService:
                     comment_count=hit.get("comment_count", 0),
                     image_url=hit.get("image_url", ""),
                     score=0.0 if sortedby is not None else float(hit.score or 0),
+                    doc_id=hit["doc_id"],
                 )
                 for hit in rows
             ]

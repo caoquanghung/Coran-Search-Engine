@@ -4,7 +4,7 @@
 
 Replace query-time image collection from highly ranked articles with a persistent, image-level text search. Each eligible image in the crawled article dataset should have its URL and associated text stored before a user searches. Rank images by how well that text matches the query.
 
-Keep Python, Whoosh, BM25F, Streamlit, Vietnamese accent handling, and the existing article search. This remains text-based retrieval: better image descriptions should improve relevance, but BM25F does not understand visual content or automatically match synonyms. Image recognition, generated captions, embeddings, and external image-search APIs are outside this implementation.
+Keep Python, Whoosh, BM25F, Streamlit, and Vietnamese accent handling. The subsequent semantic extension uses `multilingual-e5-small` embeddings and persistent exact cosine indexes for article passages and image descriptions, combining independent BM25F and vector rankings with RRF. NumPy performs the vector scan to avoid conflicting FAISS/PyTorch native runtimes on macOS. It runs over the full 1,000-article dataset. See README's Hybrid Search section for the implemented behavior. Image recognition, generated captions, and external image-search APIs remain outside this text-based implementation.
 
 For the initial dataset, “all images” means all eligible editorial images from up to 1,000 valid unique article candidates, not just images in the first six search results. Retain candidates regardless of comment count. After bootstrap, the crawling loop adds newly discovered articles and their images, so the live corpus may grow beyond 1,000 articles. Logos, ads, tracking pixels, navigation images, and related-story thumbnails are excluded.
 

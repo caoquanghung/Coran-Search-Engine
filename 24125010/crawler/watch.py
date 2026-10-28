@@ -18,6 +18,7 @@ from .crawler import VnExpressCrawler
 from .parser import parse_article
 from engine.image_indexer import build_image_index, update_image_index
 from engine.indexer import build_index, read_documents, update_article_index
+from engine.vector_index import build_vector_indexes
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,13 +37,14 @@ def _lock(path: Path):
 class CrawlLoop:
     def __init__(self, crawler: VnExpressCrawler, *, documents_path: Path,
                  images_path: Path, article_index: Path, image_index: Path,
-                 state_path: Path) -> None:
+                 state_path: Path, vector_dir: Path | None = None) -> None:
         self.crawler = crawler
         self.documents_path = documents_path
         self.images_path = images_path
         self.article_index = article_index
         self.image_index = image_index
         self.state_path = state_path
+        self.vector_dir = vector_dir or article_index.parent / "vector_index"
         state_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(state_path)
         self.db.execute("CREATE TABLE IF NOT EXISTS articles (url TEXT PRIMARY KEY, doc_id TEXT, status TEXT NOT NULL, payload TEXT, attempts INTEGER DEFAULT 0, retry_at REAL DEFAULT 0)")
@@ -86,6 +88,8 @@ class CrawlLoop:
             build_image_index(self.images_path, self.image_index)
         else:
             update_image_index(doc.get("images") or [], self.image_index)
+        if (self.vector_dir / "manifest.json").exists():
+            build_vector_indexes(self.documents_path, self.images_path, self.vector_dir)
         self.db.execute("UPDATE articles SET status='done', payload=NULL WHERE url=?", (url,))
         self.db.commit()
 

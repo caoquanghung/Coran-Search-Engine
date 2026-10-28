@@ -16,6 +16,7 @@ from crawler.corpus import write_corpus  # noqa: E402
 from crawler.parser import parse_article  # noqa: E402
 from engine.indexer import read_documents, build_index  # noqa: E402
 from engine.image_indexer import build_image_index  # noqa: E402
+from engine.vector_index import build_vector_indexes  # noqa: E402
 import requests  # noqa: E402
 
 
@@ -35,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--state", type=Path, default=Path("data/crawl_state.sqlite"))
     parser.add_argument("--article-index", type=Path, default=Path("index"))
     parser.add_argument("--image-index", type=Path, default=Path("image_index"))
+    parser.add_argument("--vector-index", type=Path, help="Defaults to vector_index beside the article index")
     return parser.parse_args()
 
 
@@ -54,7 +56,7 @@ def main() -> int:
     if args.watch or args.once:
         loop = CrawlLoop(crawler, documents_path=args.output, images_path=args.images_output,
                          article_index=args.article_index, image_index=args.image_index,
-                         state_path=args.state)
+                         state_path=args.state, vector_dir=args.vector_index)
         if args.once:
             print(loop.run_once())
         else:
@@ -88,6 +90,9 @@ def main() -> int:
         manifest = write_corpus(documents, args.output, args.images_output)
         article_count = build_index(args.output, args.article_index)
         image_count = build_image_index(args.images_output, args.image_index)
+        vector_dir = args.vector_index or args.article_index.parent / "vector_index"
+        if (vector_dir / "manifest.json").exists():
+            build_vector_indexes(args.output, args.images_output, vector_dir)
         print(f"Stored {manifest['documents']} articles and {manifest['images']} images; indexed {article_count} articles and {image_count} searchable images")
         return 0
     articles = crawler.crawl()
