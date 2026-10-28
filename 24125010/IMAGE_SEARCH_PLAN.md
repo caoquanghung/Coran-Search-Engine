@@ -6,7 +6,7 @@ Replace query-time image collection from highly ranked articles with a persisten
 
 Keep Python, Whoosh, BM25F, Streamlit, Vietnamese accent handling, and the existing article search. This remains text-based retrieval: better image descriptions should improve relevance, but BM25F does not understand visual content or automatically match synonyms. Image recognition, generated captions, embeddings, and external image-search APIs are outside this implementation.
 
-For the initial dataset, “all images” means all eligible editorial images from the retained 100 articles, not just images in the first six search results. Keep the existing selection of the 100 articles with the highest comment counts among crawl candidates for this bootstrap, as required by `requirement.md`. After bootstrap, the requested crawling loop adds newly discovered articles and their images, so the live corpus grows beyond 100 articles. Keep a separate fixed 100-article snapshot for submission and relevance evaluation. Logos, ads, tracking pixels, navigation images, and related-story thumbnails are excluded.
+For the initial dataset, “all images” means all eligible editorial images from up to 1,000 valid unique article candidates, not just images in the first six search results. Retain candidates regardless of comment count. After bootstrap, the crawling loop adds newly discovered articles and their images, so the live corpus may grow beyond 1,000 articles. Logos, ads, tracking pixels, navigation images, and related-story thumbnails are excluded.
 
 ## Current behavior and causes of poor relevance
 
@@ -22,8 +22,8 @@ For the initial dataset, “all images” means all eligible editorial images fr
 ```text
 Discover and fetch candidate articles
   -> extract article fields and all editorial image contexts from the same HTML
-  -> select the existing top 100 articles by comment count
-  -> persist documents.jsonl and images.jsonl for that selected corpus
+  -> retain up to 1,000 valid unique article candidates
+  -> persist documents.jsonl and images.jsonl for that corpus
   -> build the existing article index and a separate image_index/
 
 Every 15 minutes
@@ -75,7 +75,7 @@ Extraction rules:
 Update `crawler/parser.py`, `crawler/crawler.py`, and `scripts/crawl.py`:
 
 - Add an `images` collection to `Article`, with an empty default for compatibility. Extract it during normal article parsing using the query-independent extractor in `crawler/image_crawler.py`.
-- Carry image records through the initial top-100 selection, then add new articles and images during scheduled crawling. Export `data/images.jsonl`, one record per source/article-image association, for articles in the corpus. Store the nested collection in `documents.jsonl` as the source of truth so the image export can be regenerated without recrawling.
+- Carry image records for every retained article candidate, then add new articles and images during scheduled crawling. Export `data/images.jsonl`, one record per source/article-image association, for articles in the corpus. Store the nested collection in `documents.jsonl` as the source of truth so the image export can be regenerated without recrawling.
 - Preserve the existing article `image_url` field for compatibility. Do not impose the old two-images-per-article search limit on extraction or persistence.
 - Prepare and validate both outputs before publishing them. Record a shared crawl generation and counts in a manifest; index builds must reject mismatched generations. Retain the last valid generation if export fails.
 - Log counts for fetched/retained articles, extracted and searchable images, missing descriptions, excluded assets, and duplicates. Retain request retries, timeouts, crawl delay, and existing crawl limits.
@@ -89,7 +89,7 @@ Update `crawler/parser.py`, `crawler/crawler.py`, and `scripts/crawl.py`:
 - Store durable crawl state, for example in `data/crawl_state.sqlite`, keyed by normalized source URL with canonical URL and article-ID aliases. Seed it from the existing dataset during migration. Use the existing URL-cleaning rules only where valid for the source, and preserve parameters that identify distinct articles. Resolve canonical aliases after the first fetch and avoid duplicate storage/indexing.
 - Track discovery, fetch/extraction, pending indexing, completion, attempt count, and retry time separately. Persist successfully extracted records before indexing. If indexing fails, retry from those saved records without fetching the article again; stable article/image IDs make index writes idempotent. Mark indexing complete only after both applicable article and image index updates succeed. Recover pending work after a restart.
 - Retry transient fetch failures with backoff; do not mark them successfully crawled. Record invalid/nonarticle URLs separately so they are not repeatedly retried as new articles. Previously completed articles are neither fetched nor reindexed during the normal loop, even if their text, comments, or images later change. Explicit migration, repair, or recrawl commands remain separate operations.
-- Append newly accepted article/image records to the live corpus and update only their index documents. Do not rerun top-100 selection or rebuild the full corpus on every pass. A pass with no new content leaves datasets, indexes, and index generations unchanged.
+- Append newly accepted article/image records to the live corpus and update only their index documents. Do not rebuild the full corpus on every pass. A pass with no new content leaves datasets, indexes, and index generations unchanged.
 - Log each pass's start/end time, discovered URLs, previously seen URLs skipped, newly crawled articles/images, indexing successes, and failures. Checkpoints must survive shutdown; respect per-source request delays and bounded retries.
 
 ## 3. Build a separate persistent Whoosh image index
@@ -130,12 +130,12 @@ Update `main.py` and relevant package exports:
 
 The existing JSONL contains representative image URLs but not the complete image collection or its captions. Rebuilding an index from those URLs alone cannot recover the missing descriptions.
 
-1. Add a backfill command, `scripts/backfill_images.py`, that refetches the URLs already in `data/documents.jsonl`, extracts image context, and writes a new versioned dataset/export. Preserve article IDs and the selected corpus; do not rerun top-100 selection for this migration.
+1. Add a backfill command, `scripts/backfill_images.py`, that refetches the URLs already in `data/documents.jsonl`, extracts image context, and writes a new versioned dataset/export. Preserve article IDs and corpus membership during this migration.
 2. Record failures explicitly and support retrying failed sources. Without a previous image record, a failed source remains a documented coverage gap rather than a successful empty extraction. Keep previous records on failed refreshes; replace a source's records only after a successful extraction, including a successful zero-image result.
 3. Build and validate the image index, then switch the UI to it. Keep the article index usable throughout. A normal future crawl should produce image records directly and no longer need backfill.
 4. Update README setup, project structure, crawl/index instructions, corpus scope, text-retrieval limitations, and migration guidance.
 5. The repository also contains a `24125010/` submission copy and `24125010.zip`. Implement in the root source first; synchronize and regenerate the submission artifacts only during the packaging stage, then smoke-test the packaged application.
-6. Seed persistent crawl state from the migrated corpus, then start the 15-minute watcher. Keep the fixed submission/evaluation snapshot separate from the growing live dataset. Document how to start/stop the watcher and recover pending indexing work.
+6. Seed persistent crawl state from the migrated corpus, then start the 15-minute watcher. Document how to start/stop the watcher and recover pending indexing work.
 
 Planned commands to add and document (these do not exist yet):
 
@@ -145,7 +145,7 @@ python scripts/backfill_images.py --input data/documents.jsonl --output data/ima
 python scripts/build_image_index.py --input data/images.jsonl --index image_index
 
 # Future normal crawl: write articles, nested image records, image export, and manifest.
-python scripts/crawl.py --limit 100 --pages 5 --candidates 500
+python scripts/crawl.py --limit 1000 --pages 5 --candidates 1500
 python scripts/build_index.py
 python scripts/build_image_index.py --input data/images.jsonl --index image_index
 
@@ -178,7 +178,7 @@ Compare Precision@6 (relevant results divided by six slots), per-query result co
 
 1. **Extraction and dataset:** introduce the image model, preserve captions, crawl all editorial image contexts, and persist consistent versioned outputs.
 2. **Index and retrieval:** implement the separate schema, full rebuild, image search service, accent handling, and duplicate grouping; validate offline ranking cases.
-3. **Migration, scheduled crawling, and UI:** backfill the existing 100-article corpus, seed crawl state, build its image index, add the 15-minute discovery loop and incremental indexing, replace lazy UI retrieval, and verify restart recovery, cache invalidation, and article-search independence.
+3. **Migration, scheduled crawling, and UI:** backfill the existing corpus, expand it to 1,000 candidates, seed crawl state, build its image index, add the 15-minute discovery loop and incremental indexing, replace lazy UI retrieval, and verify restart recovery, cache invalidation, and article-search independence.
 4. **Evaluation and delivery:** run existing and new tests, assess the fixed relevance set, tune based on evidence, update README, and refresh submission artifacts.
 
 The improvement is complete when a query retrieves images from their own stored descriptions across the full corpus, independently of which articles are displayed; all eligible image URLs are preserved with context provenance; the image index and crawl state persist across restarts; a background pass checks for new content every 15 minutes and crawls/indexes only new records; and correctness, relevance evaluation, migration, and packaged-app checks have been documented.

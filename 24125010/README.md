@@ -8,7 +8,7 @@ VnSearch is a Vietnamese text search engine built with Whoosh and Streamlit. It 
 ## Main Features
 
 - Crawls VnExpress articles from multiple categories and pages.
-- Stores a dataset containing the 100 candidate articles with the highest comment counts.
+- Stores and indexes up to 1,000 valid article candidates, regardless of comment count.
 - Indexes article titles, descriptions, and content with Whoosh.
 - Uses BM25F ranking, with higher weights for titles and descriptions.
 - Supports Vietnamese queries with or without diacritics.
@@ -49,6 +49,7 @@ streamlit run main.py
 ```
 
 Streamlit will display a local URL, normally `http://localhost:8501`.
+Type a query and press Enter or click **Tìm kiếm**. The search text stays in the box when you change sorting or move between result pages.
 
 ## Persistent Indexing
 
@@ -76,18 +77,24 @@ Backfill requests each existing article page. Failed URLs are written to `data/i
 The included dataset is ready to use. To crawl a new dataset and rebuild the index:
 
 ```bash
-python scripts/crawl.py --limit 100 --pages 5 --candidates 500
+python scripts/crawl.py --limit 1000 --pages 5 --candidates 1500
 python scripts/build_index.py
 python scripts/build_image_index.py
 ```
 
-The initial crawl selects the 100 articles with the highest comment counts from its candidates. It writes `data/documents.jsonl`, `data/images.jsonl`, and a corpus manifest. To continue discovering new content, run the watcher as a separate process:
+This creates a new corpus from the first 1,000 valid unique article candidates, along with `data/images.jsonl` and a corpus manifest. To expand an existing dataset without refetching its articles, run:
+
+```bash
+python scripts/crawl.py --expand --limit 1000 --pages 5 --candidates 1500
+```
+
+Expansion adds unseen articles until the corpus has 1,000 records, then rebuilds both indexes. To continue discovering new content after that, run the watcher as a separate process:
 
 ```bash
 python scripts/crawl.py --watch --interval 900 --state data/crawl_state.sqlite
 ```
 
-The watcher checks the configured listing pages immediately and every 15 minutes after that. It skips previously indexed article URLs, saves new article and image records, and updates both indexes. Its SQLite state survives restarts; pending index work resumes without refetching the article. Stop it with Ctrl+C. For a single pass, use `python scripts/crawl.py --once`. The live dataset grows beyond the initial 100 articles; keep a copy of the initial dataset if a fixed-size submission is required. The watcher currently supports the configured VnExpress seeds.
+The watcher checks the configured listing pages immediately and every 15 minutes after that. It skips previously indexed article URLs, saves new article and image records, and updates both indexes. Its SQLite state survives restarts; pending index work resumes without refetching the article. Stop it with Ctrl+C. For a single pass, use `python scripts/crawl.py --once`. The live dataset can grow beyond 1,000 articles; the watcher currently supports the configured VnExpress seeds.
 
 Please use a reasonable crawl delay and follow the source website's terms and robots policy.
 

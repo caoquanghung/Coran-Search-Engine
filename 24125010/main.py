@@ -21,7 +21,6 @@ st.markdown(
     """
     <style>
       .block-container {max-width: 980px; padding-top: 2rem;}
-      [data-testid="stForm"] {border: 0; padding: 0;}
       .brand {font: 600 2.5rem Arial,sans-serif; letter-spacing:-2px; margin:0 0 .7rem}
       .brand span:nth-child(1),.brand span:nth-child(4){color:#4285f4}
       .brand span:nth-child(2),.brand span:nth-child(6){color:#ea4335}
@@ -82,24 +81,33 @@ if not stats["ready"]:
     st.code("python scripts/crawl.py\npython scripts/build_index.py\nstreamlit run main.py", language="bash")
     st.stop()
 
-query_from_url = str(st.query_params.get("q", ""))
-with st.form("search", clear_on_submit=False):
-    left, right = st.columns([8, 1])
-    with left:
-        query = st.text_input(
-            "Từ khóa",
-            value=query_from_url,
-            label_visibility="collapsed",
-            placeholder="Tìm trong các bài viết VnExpress…",
-        )
-    with right:
-        submitted = st.form_submit_button("Tìm kiếm", type="primary", use_container_width=True)
+query_from_url = str(st.query_params.get("q", "")).strip()
+if st.session_state.get("_last_url_query") != query_from_url:
+    # Initialize from a shared URL, or respond to browser back/forward navigation.
+    st.session_state["search_draft"] = query_from_url
+    st.session_state["active_query"] = query_from_url
+    st.session_state["_last_url_query"] = query_from_url
 
-if submitted:
-    st.query_params["q"] = query
+def submit_search() -> None:
+    st.session_state["active_query"] = st.session_state["search_draft"].strip()
+    st.session_state["_last_url_query"] = st.session_state["active_query"]
+    st.query_params["q"] = st.session_state["active_query"]
     st.query_params["page"] = "1"
 
-query = query.strip()
+
+left, right = st.columns([8, 1])
+with left:
+    st.text_input(
+        "Từ khóa",
+        key="search_draft",
+        on_change=submit_search,
+        label_visibility="collapsed",
+        placeholder="Tìm trong các bài viết VnExpress…",
+    )
+with right:
+    st.button("Tìm kiếm", type="primary", use_container_width=True, on_click=submit_search)
+
+query = st.session_state["active_query"]
 try:
     current_page = max(1, int(st.query_params.get("page", "1")))
 except (TypeError, ValueError):

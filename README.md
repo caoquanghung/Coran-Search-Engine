@@ -49,6 +49,7 @@ streamlit run main.py
 ```
 
 Streamlit will display a local URL, normally `http://localhost:8501`.
+Type a query and press Enter or click **Tìm kiếm**. The search text stays in the box when you change sorting or move between result pages.
 
 ## Persistent Indexing
 
