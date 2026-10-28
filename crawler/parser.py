@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import hashlib
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
+
+from .image_records import ArticleImage, extract_article_images
 
 
 _SPACE_RE = re.compile(r"\s+")
@@ -44,6 +46,7 @@ class Article:
     comment_count: int = 0
     image_url: str = ""
     crawled_at: str = ""
+    images: list[ArticleImage] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -122,23 +125,6 @@ def parse_article(html: str, source_url: str) -> Article | None:
         or _meta(soup, "description", "og:description")
     )
 
-    body = soup.select_one("article.fck_detail, .fck_detail, article")
-    if body:
-        for unwanted in body.select(
-            "script, style, iframe, figure figcaption, .box-tinlienquan, .social, .banner-ads"
-        ):
-            unwanted.decompose()
-        paragraphs = [_text(p.get_text(" ")) for p in body.select("p")]
-        content = "\n".join(p for p in paragraphs if p)
-        if not content:
-            content = _text(body.get_text(" "))
-    else:
-        article_body = structured.get("articleBody")
-        content = _text(article_body if isinstance(article_body, str) else "")
-
-    if not title or len(content) < 80:
-        return None
-
     canonical_node = soup.select_one('link[rel="canonical"]')
     canonical = str(canonical_node.get("href", "")) if canonical_node else ""
     url = urljoin(source_url, canonical or _meta(soup, "og:url") or source_url)
@@ -165,6 +151,27 @@ def parse_article(html: str, source_url: str) -> Article | None:
         if article_id_match
         else hashlib.sha1(url.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     )
+    crawled_at = datetime.now(timezone.utc).isoformat()
+    images = extract_article_images(
+        soup, source_doc_id=article_id, source_url=url,
+        source_title=title, category=category, published_at=published_at,
+        crawled_at=crawled_at,
+    )
+    body = soup.select_one("article.fck_detail, .fck_detail, article")
+    if body:
+        for unwanted in body.select(
+            "script, style, iframe, figure figcaption, .box-tinlienquan, .social, .banner-ads"
+        ):
+            unwanted.decompose()
+        paragraphs = [_text(p.get_text(" ")) for p in body.select("p")]
+        content = "\n".join(p for p in paragraphs if p)
+        if not content:
+            content = _text(body.get_text(" "))
+    else:
+        article_body = structured.get("articleBody")
+        content = _text(article_body if isinstance(article_body, str) else "")
+    if not title or len(content) < 80:
+        return None
     return Article(
         id=article_id,
         title=title,
@@ -174,6 +181,7 @@ def parse_article(html: str, source_url: str) -> Article | None:
         category=category,
         published_at=published_at,
         comment_count=_comment_count(soup, html),
-        image_url=urljoin(url, str(image or _meta(soup, "og:image"))),
-        crawled_at=datetime.now(timezone.utc).isoformat(),
+        image_url=urljoin(url, str(image or _meta(soup, "og:image"))) if (image or _meta(soup, "og:image")) else "",
+        crawled_at=crawled_at,
+        images=images,
     )

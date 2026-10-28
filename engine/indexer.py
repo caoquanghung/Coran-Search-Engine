@@ -11,6 +11,7 @@ from typing import Any, Iterator
 from whoosh import index
 
 from .schema import DOCUMENT_SCHEMA, fold_vietnamese
+from crawler.corpus import corpus_is_consistent, read_manifest
 
 
 def _parse_datetime(value: str | None) -> datetime:
@@ -37,6 +38,9 @@ def build_index(documents_path: Path, index_dir: Path, *, recreate: bool = True)
     """Index JSONL. Ghi vào thư mục tạm rồi thay thế để hạn chế index dang dở."""
     if not documents_path.exists():
         raise FileNotFoundError(f"Không tìm thấy dataset: {documents_path}")
+    manifest = read_manifest(documents_path)
+    if manifest and not corpus_is_consistent(documents_path, documents_path.parent / str(manifest.get("images_file") or "images.jsonl")):
+        raise ValueError("Corpus exports do not match the manifest")
     index_dir.parent.mkdir(parents=True, exist_ok=True)
     target = index_dir
     if recreate:
@@ -91,6 +95,33 @@ def build_index(documents_path: Path, index_dir: Path, *, recreate: bool = True)
         if backup.exists():
             shutil.rmtree(backup)
     return count
+
+
+def update_article_index(doc: dict[str, Any], index_dir: Path) -> None:
+    """Idempotent write for an article discovered by the scheduled crawler."""
+    if not index.exists_in(index_dir):
+        raise FileNotFoundError(index_dir)
+    title = str(doc.get("title") or "").strip()
+    content = str(doc.get("content") or "").strip()
+    url = str(doc.get("url") or "").strip()
+    if not title or not content or not url:
+        raise ValueError("Article is missing title, content, or URL")
+    description = str(doc.get("description") or "")
+    writer = index.open_dir(index_dir).writer()
+    try:
+        writer.update_document(
+            doc_id=str(doc.get("id") or url), title=title, description=description,
+            content=content, folded=fold_vietnamese(" ".join((title, description, content))),
+            url=url, category=str(doc.get("category") or ""),
+            published_at=str(doc.get("published_at") or ""),
+            comment_count=int(doc.get("comment_count") or 0),
+            image_url=str(doc.get("image_url") or ""),
+            crawled_at=_parse_datetime(doc.get("crawled_at")),
+        )
+        writer.commit()
+    except Exception:
+        writer.cancel()
+        raise
 
 
 def index_stats(index_dir: Path) -> dict[str, Any]:

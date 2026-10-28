@@ -8,12 +8,13 @@ from urllib.parse import urlparse
 
 import streamlit as st
 
-from engine import SearchService, build_index, index_stats
+from engine import ImageSearchService, SearchService, build_index, image_index_stats, index_stats
 
 
 ROOT = Path(__file__).resolve().parent
 DATASET = ROOT / "data" / "documents.jsonl"
 INDEX_DIR = ROOT / "index"
+IMAGE_INDEX_DIR = ROOT / "image_index"
 
 st.set_page_config(page_title="VnSearch", page_icon="🔎", layout="wide")
 st.markdown(
@@ -32,6 +33,10 @@ st.markdown(
       .result h3 a {color:#1a0dab;text-decoration:none}.result h3 a:hover{text-decoration:underline}
       .result .snippet {color:#4d5156;font-size:.92rem;line-height:1.55}
       .result .extra {color:#70757a;font-size:.8rem;margin-top:.25rem}
+      .image-heading {font:500 1.05rem Arial,sans-serif;color:#202124;margin:.2rem 0 .8rem}
+      .image-caption {font:400 .82rem/1.35 Arial,sans-serif;margin:.3rem 0 1rem;
+                      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+      .image-caption a {color:#1a0dab;text-decoration:none}.image-caption a:hover{text-decoration:underline}
       mark {background:#fff2a8;padding:0}
       .empty {padding:2rem 0;color:#4d5156}
       footer {visibility:hidden}
@@ -51,11 +56,14 @@ def get_service(index_mtime: float) -> SearchService:
     return SearchService(INDEX_DIR)
 
 
-def _index_mtime() -> float:
-    toc = INDEX_DIR / "_MAIN_1.toc"
-    if toc.exists():
-        return toc.stat().st_mtime
-    return INDEX_DIR.stat().st_mtime if INDEX_DIR.exists() else 0.0
+def _index_mtime(index_dir: Path) -> float:
+    return max((item.stat().st_mtime_ns for item in index_dir.glob("*.toc")), default=0)
+
+
+@st.cache_resource(show_spinner=False)
+def get_image_service(index_mtime: float) -> ImageSearchService:
+    del index_mtime
+    return ImageSearchService(IMAGE_INDEX_DIR)
 
 
 stats = index_stats(INDEX_DIR)
@@ -103,7 +111,7 @@ sort_label = st.radio(
     horizontal=True,
     label_visibility="collapsed",
 )
-service = get_service(_index_mtime())
+service = get_service(_index_mtime(INDEX_DIR))
 try:
     result_page = service.search(
         query,
@@ -126,6 +134,31 @@ if not result_page.results:
         '<div class="empty">Không tìm thấy kết quả phù hợp. Hãy thử từ khóa ngắn hoặc bỏ dấu.</div>',
         unsafe_allow_html=True,
     )
+
+if query:
+    st.markdown('<div class="image-heading">Hình ảnh liên quan</div>', unsafe_allow_html=True)
+    if not image_index_stats(IMAGE_INDEX_DIR)["ready"]:
+        st.caption("Chưa có chỉ mục ảnh. Hãy chạy scripts/backfill_images.py và scripts/build_image_index.py.")
+    else:
+        try:
+            image_page = get_image_service(_index_mtime(IMAGE_INDEX_DIR)).search(query)
+            if image_page.results:
+                image_columns = st.columns(3)
+                for position, related in enumerate(image_page.results):
+                    with image_columns[position % 3]:
+                        try:
+                            st.image(related.image_url, use_container_width=True)
+                        except Exception:
+                            st.caption("Không tải được ảnh.")
+                        st.markdown(
+                            f'<div class="image-caption"><a href="{_safe(related.source_url)}" '
+                            f'target="_blank" rel="noopener noreferrer">{_safe(related.description)}</a></div>',
+                            unsafe_allow_html=True,
+                        )
+            else:
+                st.caption("Không tìm thấy ảnh có mô tả phù hợp.")
+        except Exception as exc:
+            st.caption(f"Không thể tìm ảnh: {exc}")
 
 for item in result_page.results:
     host = urlparse(item.url).netloc.removeprefix("www.")

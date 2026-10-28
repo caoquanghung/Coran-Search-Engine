@@ -1,0 +1,8 @@
+beautifulsoup4>=4.12,<5
+lxml>=5.2,<7
+requests>=2.32,<3
+streamlit>=1.39,<2
+Whoosh>=2.7.4,<3
+
+# Development / tests
+pytest>=8.2,<9

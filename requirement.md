@@ -1,5 +1,5 @@
 
-Crawl top 100 papers with highest number of comments on VN express.
+Crawl and index up to 1,000 unique VnExpress article candidates, including their associated images and text, regardless of comment count.
 
 Bạn cần xây dựng một Text-based Search Engine (công cụ tìm kiếm văn bản) bằng Python, sử dụng:
 - Dataset: Dữ liệu đã crawl ở trên

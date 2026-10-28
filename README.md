@@ -1,65 +1,139 @@
-# VnSearch — Text Search Engine MVP
+# VnSearch — Article and Image Search
 
-Ứng dụng thu thập các bài VnExpress, giữ tối đa 100 bài có số bình luận cao nhất trong tập ứng viên, lập chỉ mục đảo bằng Whoosh và tìm kiếm với BM25F. Giao diện Streamlit trình bày mỗi kết quả theo cấu trúc quen thuộc: đường dẫn, tiêu đề, đoạn trích và metadata.
+**Student:** Cao Quang Hung<br>
+**Student ID:** 24125010
 
-## Chức năng
+VnSearch is a Vietnamese text search engine built with Whoosh and Streamlit. It crawls VnExpress articles, creates a persistent inverted index, and presents matching documents in a Google-style interface.
 
-- Crawl theo nhiều chuyên mục, phân trang, retry khi lỗi tạm thời và delay giữa các request.
-- Parse title, sapo, nội dung, URL canonical, chuyên mục, ngày đăng, ảnh và số bình luận.
-- Lưu dataset dạng JSONL; chọn top 100 theo `comment_count`.
-- Lưu Whoosh index trên đĩa, không re-index sau mỗi lần tìm kiếm.
-- BM25F với trọng số tiêu đề > mô tả > nội dung; so khớp Unicode không dấu.
-- Snippet dùng sliding window và Maximum Query Coverage để ưu tiên đoạn phủ nhiều query term nhất.
-- Phân trang, sắp xếp theo độ liên quan hoặc số bình luận, highlight không phân biệt dấu.
+## Main Features
 
-## Cài đặt và chạy
+- Crawls VnExpress articles from multiple categories and pages.
+- Stores and indexes up to 1,000 valid article candidates, regardless of comment count.
+- Indexes article titles, descriptions, and content with Whoosh.
+- Uses BM25F ranking, with higher weights for titles and descriptions.
+- Supports Vietnamese queries with or without diacritics.
+- Displays the URL, title, highlighted snippet, publication date, category, and comment count for each result.
+- Supports pagination and sorting by relevance or comment count.
+- Extracts every eligible editorial image with its alt text, caption, and nearby text during article crawling.
+- Searches a persistent image-description index independently of the article results.
+- Can check the VnExpress seed pages every 15 minutes and index only newly discovered articles and images.
+- Stores the Whoosh index on disk so the dataset is not re-indexed after every Streamlit interaction.
 
-Yêu cầu Python 3.10 trở lên.
+## Requirements
+
+- Python 3.10 or newer
+- The Python packages listed in `requirements.txt`
+
+## Installation
+
+Open a terminal in the `24125010` folder and run:
 
 ```bash
 python -m venv .venv
+
+# macOS or Linux
 source .venv/bin/activate
+
+# Windows PowerShell
+# .venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
+```
 
-# Thu thập tối đa 500 ứng viên, giữ 100 bài nhiều bình luận nhất
-python scripts/crawl.py --limit 100 --pages 5 --candidates 500
+## Running the Application
 
-# Xây index persistent
-python scripts/build_index.py
+The submitted package contains a crawled article dataset and persistent article index. Build the image corpus and index as described below, then start the graphical interface with:
 
-# Mở giao diện
+```bash
 streamlit run main.py
 ```
 
-Giao diện cũng tự xây index lần đầu nếu `data/documents.jsonl` đã tồn tại nhưng `index/` chưa có index hợp lệ.
+Streamlit will display a local URL, normally `http://localhost:8501`.
 
-## Lệnh hữu ích
+## Persistent Indexing
+
+The application reuses the article index in `index/` and image index in `image_index/`. Streamlit caches each search service by its index generation, so updates become visible on the next rerun.
+
+The index is created only when no valid index exists and `data/documents.jsonl` is available. Therefore, entering a query, changing the sort option, or moving between result pages does not rebuild the dataset index.
+
+To rebuild the index manually, run:
 
 ```bash
-# Crawl nhanh để demo
-python scripts/crawl.py --limit 20 --pages 1 --candidates 40 --delay 0.5
-
-# Cập nhật/upsert vào index đang có
-python scripts/build_index.py --update
-
-# Chạy test
-pytest -q
+python scripts/build_index.py
 ```
 
-## Dữ liệu và lưu ý
+The old dataset has one representative image URL per article and does not contain full captions. To populate image search for those articles, run:
 
-Các URL seed nằm trong `data/seeds.txt`. "Top 100" được tính trong toàn bộ tập URL ứng viên tìm thấy ở các trang seed đã cấu hình; tăng `--pages` và `--candidates` để có độ phủ lớn hơn. Cấu trúc HTML của trang nguồn có thể thay đổi, vì vậy parser dùng CSS selector, JSON-LD và metadata làm các lớp fallback.
+```bash
+python scripts/backfill_images.py --input data/documents.jsonl --output data/images.jsonl
+python scripts/build_image_index.py --input data/images.jsonl --index image_index
+```
 
-Hãy giữ `--delay` ở mức hợp lý, không chạy nhiều crawler đồng thời, và tuân thủ điều khoản/robots policy của website nguồn. Dataset và index là sản phẩm sinh ra nên được `.gitignore` bỏ qua.
+Backfill requests each existing article page. Failed URLs are written to `data/image_backfill_failures.txt`; rerun the command when the source is reachable. The image UI reports when no image index is available. Text matching uses Vietnamese accent folding and BM25F over image caption, alt text, image title, and local paragraph context. It does not inspect image pixels or automatically infer synonyms.
 
-## Cấu trúc
+## Optional: Crawling the Dataset Again
+
+The included dataset is ready to use. To crawl a new dataset and rebuild the index:
+
+```bash
+python scripts/crawl.py --limit 1000 --pages 5 --candidates 1500
+python scripts/build_index.py
+python scripts/build_image_index.py
+```
+
+This creates a new corpus from the first 1,000 valid unique article candidates, along with `data/images.jsonl` and a corpus manifest. To expand an existing dataset without refetching its articles, run:
+
+```bash
+python scripts/crawl.py --expand --limit 1000 --pages 5 --candidates 1500
+```
+
+Expansion adds unseen articles until the corpus has 1,000 records, then rebuilds both indexes. To continue discovering new content after that, run the watcher as a separate process:
+
+```bash
+python scripts/crawl.py --watch --interval 900 --state data/crawl_state.sqlite
+```
+
+The watcher checks the configured listing pages immediately and every 15 minutes after that. It skips previously indexed article URLs, saves new article and image records, and updates both indexes. Its SQLite state survives restarts; pending index work resumes without refetching the article. Stop it with Ctrl+C. For a single pass, use `python scripts/crawl.py --once`. The live dataset can grow beyond 1,000 articles; the watcher currently supports the configured VnExpress seeds.
+
+Please use a reasonable crawl delay and follow the source website's terms and robots policy.
+
+## Running the Tests
+
+```bash
+pytest -q tests
+```
+
+## Project Structure
 
 ```text
-main.py                 Streamlit UI
-crawler/                link discovery + article parser
-engine/                 schema + persistent index + BM25F search
-scripts/crawl.py        crawl CLI
-scripts/build_index.py  indexing CLI
-data/seeds.txt          seed URLs
-tests/                  parser/search tests
+24125010/
+├── main.py                  # Streamlit graphical interface
+├── requirements.txt         # Required Python libraries
+├── README.md                # Setup and usage instructions
+├── crawler/
+│   ├── crawler.py           # Link discovery and article crawling
+│   ├── parser.py            # Article content extraction
+│   ├── image_records.py     # Image URLs and description extraction
+│   ├── corpus.py            # Article/image dataset exports
+│   └── watch.py             # Persistent 15-minute crawl loop
+├── engine/
+│   ├── schema.py            # Whoosh schema and Vietnamese normalization
+│   ├── indexer.py           # Persistent index construction
+│   ├── searcher.py          # Article retrieval and snippets
+│   ├── image_schema.py      # Image text schema
+│   ├── image_indexer.py     # Image index build and updates
+│   └── image_searcher.py    # Independent image retrieval
+├── scripts/
+│   ├── crawl.py             # Dataset crawling command
+│   ├── backfill_images.py   # Upgrade existing article dataset
+│   ├── build_index.py       # Article index command
+│   └── build_image_index.py # Image index command
+├── data/
+│   ├── documents.jsonl      # Crawled article dataset
+│   ├── images.jsonl         # Image URLs with associated text
+│   ├── crawl_state.sqlite   # Watcher state
+│   └── seeds.txt            # Initial category URLs
+├── index/                   # Prebuilt persistent Whoosh index
+├── image_index/             # Persistent image-description index
+└── tests/                   # Automated tests
 ```

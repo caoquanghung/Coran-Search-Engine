@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import heapq
 import json
 import logging
 import re
@@ -17,21 +16,22 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from .parser import Article, parse_article
+from .corpus import write_corpus
 
 LOGGER = logging.getLogger(__name__)
 ARTICLE_URL_RE = re.compile(r"-\d{7,}\.html(?:\?.*)?$", re.I)
 
 
 class VnExpressCrawler:
-    """Khám phá bài từ các trang seed và giữ N bài có nhiều bình luận nhất."""
+    """Discover and retain up to N valid article candidates."""
 
     def __init__(
         self,
         seeds: Iterable[str],
         *,
-        max_documents: int = 100,
+        max_documents: int = 1000,
         pages_per_seed: int = 5,
-        candidate_limit: int = 500,
+        candidate_limit: int = 1500,
         delay: float = 0.35,
         timeout: float = 15,
     ) -> None:
@@ -62,12 +62,12 @@ class VnExpressCrawler:
     @staticmethod
     def _clean_url(url: str) -> str:
         parsed = urlparse(url)
-        return urlunparse((parsed.scheme or "https", parsed.netloc, parsed.path, "", "", ""))
+        return urlunparse((parsed.scheme or "https", parsed.netloc, parsed.path, "", parsed.query, ""))
 
     @classmethod
     def _is_article_url(cls, url: str) -> bool:
         parsed = urlparse(url)
-        return parsed.netloc.endswith("vnexpress.net") and bool(ARTICLE_URL_RE.search(url))
+        return (parsed.netloc == "vnexpress.net" or parsed.netloc.endswith(".vnexpress.net")) and bool(ARTICLE_URL_RE.search(url))
 
     @staticmethod
     def _page_url(seed: str, page: int) -> str:
@@ -105,7 +105,8 @@ class VnExpressCrawler:
     def crawl(self) -> list[Article]:
         candidates = self.discover()
         LOGGER.info("Tìm thấy %d URL bài viết ứng viên", len(candidates))
-        heap: list[tuple[int, str, Article]] = []
+        articles: list[Article] = []
+        seen_ids: set[str] = set()
         for position, url in enumerate(candidates, start=1):
             try:
                 article = parse_article(self._get(url), url)
@@ -115,15 +116,14 @@ class VnExpressCrawler:
             except Exception:
                 LOGGER.exception("Lỗi parse %s", url)
                 continue
-            if article is None:
+            if article is None or article.id in seen_ids:
                 continue
-            item = (article.comment_count, article.id, article)
-            if len(heap) < self.max_documents:
-                heapq.heappush(heap, item)
-            elif item[:2] > heap[0][:2]:
-                heapq.heapreplace(heap, item)
+            seen_ids.add(article.id)
+            articles.append(article)
             LOGGER.info("[%d/%d] %d bình luận — %s", position, len(candidates), article.comment_count, article.title)
-        return [item[2] for item in sorted(heap, key=lambda value: (-value[0], value[1]))]
+            if len(articles) >= self.max_documents:
+                break
+        return articles
 
     @staticmethod
     def write_jsonl(articles: Iterable[Article], output: Path) -> int:
@@ -136,3 +136,7 @@ class VnExpressCrawler:
                 count += 1
         temporary.replace(output)
         return count
+
+    @staticmethod
+    def write_corpus(articles: Iterable[Article], output: Path, images_output: Path) -> dict:
+        return write_corpus([article.to_dict() for article in articles], output, images_output)
